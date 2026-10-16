@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.js"></script>
+<script>
+  const compiled = math.compile("x^2");
+  console.log("x^2 for x=2:", compiled.evaluate({ x: 2, e: Math.E, pi: Math.PI }));
+  
+  const comp2 = math.compile("e^x");
+  console.log("e^x for x=2:", comp2.evaluate({ x: 2, e: Math.E, pi: Math.PI }));
+</script>
+</body>
+</html>

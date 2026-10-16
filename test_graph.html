@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<body>
+<canvas id="physicsCanvas" width="800" height="600"></canvas>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.js"></script>
+<script>
+  const canvas = new fabric.Canvas('physicsCanvas');
+  window.math = math;
+
+  function mockDrawGraph() {
+      const xMin = -10;
+      const xMax = 10;
+      const xStep = 2;
+      const yMin = -10;
+      const yMax = 10;
+      const yStep = 2;
+      const showGrid = true;
+      const xLabelText = 'x';
+      const yLabelText = 'y';
+      
+      const width = 400;
+      const height = (yMax - yMin) / (xMax - xMin) * width; 
+      
+      const scaleX = width / (xMax - xMin);
+      const scaleY = height / (yMax - yMin);
+      
+      const originX = -xMin * scaleX;
+      const originY = yMax * scaleY;
+      
+      const objs = [];
+      const labels = [];
+      
+      // Force bounding box
+      objs.push(new fabric.Rect({ left: 0, top: 0, width: width, height: height, fill: 'transparent', stroke: 'transparent' }));
+      
+      if (showGrid) {
+        for (let x = Math.ceil(xMin/xStep)*xStep; x <= xMax; x += xStep) {
+          const px = originX + x * scaleX;
+          objs.push(new fabric.Line([px, 0, px, height], { stroke: '#cbd5e1', strokeWidth: 1.5, strokeDashArray: [4, 4] }));
+        }
+      }
+
+      const compiled = math.compile("x^2");
+      let pDataStr = "";
+      let isDrawing = false;
+      for (let px = 0; px <= width; px += 1) {
+          const x = (px - originX) / scaleX;
+          const y = compiled.evaluate({ x: x, e: Math.E, pi: Math.PI });
+          
+          if (isFinite(y) && !isNaN(y)) {
+            const py = originY - y * scaleY;
+            
+            // Clamp strictly inside graph bounds
+            if (py >= 0 && py <= height) {
+              if (!isDrawing) { 
+                 pDataStr += ` M ${px} ${py}`; 
+                 isDrawing = true;
+              } else { 
+                 pDataStr += ` L ${px} ${py}`;
+              }
+            } else {
+              isDrawing = false;
+            }
+          } else { 
+             isDrawing = false;
+          }
+      }
+      
+      if (pDataStr) {
+        objs.push(new fabric.Path(pDataStr.trim(), { fill: 'transparent', stroke: 'red', strokeWidth: 2 }));
+      }
+
+      if (objs.length > 0) {
+        const offsetX = 400 - width / 2;
+        const offsetY = 300 - height / 2;
+        
+        try {
+            const graphGroup = new fabric.Group([...objs, ...labels], {
+              left: 400, top: 300, originX: 'center', originY: 'center'
+            });
+            canvas.add(graphGroup);
+            canvas.renderAll();
+            console.log("Success: graphGroup added to canvas");
+        } catch (e) {
+            console.error("Error creating/adding group:", e);
+        }
+      }
+  }
+
+  mockDrawGraph();
+</script>
+</body>
+</html>

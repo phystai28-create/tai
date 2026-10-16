@@ -1,0 +1,6 @@
+{
+  "name": "Physics Draw & Graph",
+  "description": "Ứng dụng vẽ mô hình vật lý và đồ thị hàm số, hỗ trợ copy sang MS Word.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

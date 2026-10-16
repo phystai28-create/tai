@@ -1,0 +1,2126 @@
+    // 1. Khởi tạo Fabric.js Canvas
+
+
+
+
+    // 1. Khởi tạo Fabric.js Canvas
+    const canvas = new fabric.Canvas('physicsCanvas', {
+      backgroundColor: '#FFFFFF',
+      preserveObjectStacking: true, // Giữ nguyên thứ tự layer khi click chọn
+      perPixelTargetFind: true,
+      targetFindTolerance: 10
+    });
+
+    canvas.on('selection:created', (e) => {
+      canvas.perPixelTargetFind = false;
+    });
+    canvas.on('selection:updated', (e) => {
+      canvas.perPixelTargetFind = false;
+    });
+    canvas.on('selection:cleared', (e) => {
+      canvas.perPixelTargetFind = true;
+    });
+
+
+    // Cấu hình điều khiển 2 đầu đoạn thẳng (Line, Arrow, DoubleArrow)
+    function makeEdgePositionHandler(pointIndex) {
+      return function(dim, finalMatrix, fabricObject) {
+        let p = fabricObject.calcLinePoints();
+        let x = pointIndex === 0 ? p.x1 : p.x2;
+        let y = pointIndex === 0 ? p.y1 : p.y2;
+        return fabric.util.transformPoint(
+          { x: x, y: y },
+          fabric.util.multiplyTransformMatrices(
+            fabricObject.canvas.viewportTransform,
+            fabricObject.calcTransformMatrix()
+          )
+        );
+      }
+    }
+
+    function anchorWrapper(pointIndex) {
+      return function(eventData, transform, x, y) {
+        var target = transform.target;
+        var fixedPointIndex = pointIndex === 0 ? 1 : 0;
+        
+        var matrix = target.calcTransformMatrix();
+        var p = target.calcLinePoints();
+        var fixedPointRel = fixedPointIndex === 0 ? {x: p.x1, y: p.y1} : {x: p.x2, y: p.y2};
+        var fixedPointAbs = fabric.util.transformPoint(fixedPointRel, matrix);
+        
+        var p1Abs = pointIndex === 0 ? new fabric.Point(x, y) : fixedPointAbs;
+        var p2Abs = pointIndex === 1 ? new fabric.Point(x, y) : fixedPointAbs;
+
+        target.set({
+          x1: p1Abs.x, y1: p1Abs.y,
+          x2: p2Abs.x, y2: p2Abs.y,
+          angle: 0, scaleX: 1, scaleY: 1
+        });
+        
+        target._setWidthHeight();
+        
+        var newCenter = {
+          x: (p1Abs.x + p2Abs.x) / 2,
+          y: (p1Abs.y + p2Abs.y) / 2
+        };
+        target.set({
+          left: newCenter.x,
+          top: newCenter.y,
+          originX: 'center',
+          originY: 'center'
+        });
+        target.setCoords();
+        
+        return true;
+      }
+    }
+
+    fabric.Line.prototype.controls = {
+      p1: new fabric.Control({
+        positionHandler: makeEdgePositionHandler(0),
+        actionHandler: anchorWrapper(0),
+        cursorStyle: 'pointer',
+        actionName: 'modifyLine'
+      }),
+      p2: new fabric.Control({
+        positionHandler: makeEdgePositionHandler(1),
+        actionHandler: anchorWrapper(1),
+        cursorStyle: 'pointer',
+        actionName: 'modifyLine'
+      })
+    };
+
+    const dimTooltip = document.getElementById('dimTooltip');
+    const floatingToolbar = document.getElementById('floatingToolbar');
+    const textControls = document.getElementById('textControls');
+    const topShapeControls = document.getElementById('topShapeControls');
+    const btnTextBold = document.getElementById('btnTextBold');
+    const btnTextItalic = document.getElementById('btnTextItalic');
+    const fontFamilySelect = document.getElementById('fontFamilySelect');
+    const textColorInput = document.getElementById('textColorInput');
+    const fontSizeInput = document.getElementById('fontSizeInput');
+    const strokeWidthInputTop = document.getElementById('strokeWidthInputTop');
+
+    function updateDimTooltip(e) {
+      const obj = e.target;
+      if (!obj) return;
+      if (obj.type === 'i-text' || obj.type === 'text') return;
+      
+      const w = (obj.getScaledWidth()).toFixed(1);
+      const h = (obj.getScaledHeight()).toFixed(1);
+      
+      if (obj.type === 'line' || obj.type === 'arrow' || obj.type === 'double-arrow') {
+         const p = obj.calcLinePoints();
+         const p1 = new fabric.Point(p.x1, p.y1);
+         const p2 = new fabric.Point(p.x2, p.y2);
+         const t = obj.calcTransformMatrix();
+         const wp1 = fabric.util.transformPoint(p1, t);
+         const wp2 = fabric.util.transformPoint(p2, t);
+         const dx = wp2.x - wp1.x;
+         const dy = wp2.y - wp1.y;
+         const len = Math.sqrt(dx*dx + dy*dy).toFixed(1);
+         let ang = Math.atan2(-dy, dx) * 180 / Math.PI; // -dy because canvas Y is inverted
+         if (ang < 0) ang += 360;
+         ang = ang.toFixed(1);
+         dimTooltip.innerHTML = `L: ${len} | Ang: ${ang}° | W: ${w} | H: ${h}`;
+      } else {
+         dimTooltip.innerHTML = `W: ${w} | H: ${h}`;
+      }
+      dimTooltip.style.display = 'block';
+      
+      const bound = obj.getBoundingRect();
+      const vpt = canvas.viewportTransform;
+      const left = bound.left;
+      const top = bound.top;
+      dimTooltip.style.left = (left + bound.width / 2) + 'px';
+      dimTooltip.style.top = (top - 10) + 'px';
+      dimTooltip.style.transform = 'translate(-50%, -100%)';
+    }
+
+    function hideDimTooltip() {
+      dimTooltip.style.display = 'none';
+    }
+
+    canvas.on('object:moving', updateDimTooltip);
+    canvas.on('object:scaling', updateDimTooltip);
+    canvas.on('object:modifying', updateDimTooltip);
+    canvas.on('mouse:up', hideDimTooltip);
+    
+    window.bringForward = function() {
+        const obj = canvas.getActiveObject();
+        if (obj) {
+            canvas.bringForward(obj);
+            canvas.renderAll();
+        }
+    };
+    
+    window.sendBackward = function() {
+        const obj = canvas.getActiveObject();
+        if (obj) {
+            canvas.sendBackwards(obj);
+            canvas.renderAll();
+        }
+    };
+
+    window.changeStrokeWidth = function(val) {
+        const obj = canvas.getActiveObject();
+        if (obj) {
+            obj.set('strokeWidth', parseFloat(val));
+            canvas.renderAll();
+            updateFloatingToolbar();
+        }
+    };
+
+    function updateFloatingToolbar() {
+      const obj = canvas.getActiveObject();
+      if (!obj) {
+        floatingToolbar.style.display = 'none';
+        if (topShapeControls) topShapeControls.style.display = 'none';
+        return;
+      }
+      
+      floatingToolbar.style.display = 'flex';
+      
+      const isText = (obj.type === 'i-text' || obj.type === 'text');
+      
+      if (isText) {
+          textControls.style.display = 'flex';
+          topShapeControls.style.display = 'none';
+          btnTextBold.style.backgroundColor = obj.fontWeight === 'bold' ? '#e2e8f0' : '';
+          btnTextItalic.style.backgroundColor = obj.fontStyle === 'italic' ? '#e2e8f0' : '';
+          fontSizeInput.value = obj.fontSize;
+          fontFamilySelect.value = obj.fontFamily || 'sans-serif';
+          textColorInput.value = obj.fill || '#000000';
+          
+          const bound = obj.getBoundingRect();
+          floatingToolbar.style.left = (bound.left + bound.width / 2) + 'px';
+          floatingToolbar.style.top = (bound.top - 10) + 'px';
+          floatingToolbar.style.transform = 'translate(-50%, -100%)';
+      } else {
+          textControls.style.display = 'none';
+          floatingToolbar.style.display = 'none';
+          topShapeControls.style.display = 'flex';
+          strokeWidthInputTop.value = obj.strokeWidth || 0;
+      }
+    }
+
+    canvas.on('selection:created', updateFloatingToolbar);
+    canvas.on('selection:updated', updateFloatingToolbar);
+    canvas.on('selection:cleared', updateFloatingToolbar);
+    canvas.on('object:moving', (e) => { if(e.target) updateFloatingToolbar(); });
+    canvas.on('object:scaling', (e) => { if(e.target) updateFloatingToolbar(); });
+
+    window.toggleTextBold = function() {
+      const obj = canvas.getActiveObject();
+      if (obj && (obj.type === 'i-text' || obj.type === 'text')) {
+        obj.set('fontWeight', obj.fontWeight === 'bold' ? 'normal' : 'bold');
+        canvas.renderAll();
+        updateFloatingToolbar();
+      }
+    };
+    window.toggleTextItalic = function() {
+      const obj = canvas.getActiveObject();
+      if (obj && (obj.type === 'i-text' || obj.type === 'text')) {
+        obj.set('fontStyle', obj.fontStyle === 'italic' ? 'normal' : 'italic');
+        canvas.renderAll();
+        updateFloatingToolbar();
+      }
+    };
+
+    window.changeTextFont = function(val) {
+      const obj = canvas.getActiveObject();
+      if (obj && (obj.type === 'i-text' || obj.type === 'text')) {
+        obj.set('fontFamily', val);
+        canvas.renderAll();
+        updateFloatingToolbar();
+      }
+    };
+    window.changeTextColor = function(val) {
+      const obj = canvas.getActiveObject();
+      if (obj && (obj.type === 'i-text' || obj.type === 'text')) {
+        obj.set('fill', val);
+        canvas.renderAll();
+        updateFloatingToolbar();
+      }
+    };
+    window.changeTextFontSize = function(val) {
+      const obj = canvas.getActiveObject();
+      if (obj && (obj.type === 'i-text' || obj.type === 'text')) {
+        obj.set('fontSize', parseInt(val, 10));
+        canvas.renderAll();
+        updateFloatingToolbar();
+      }
+    };
+    
+    window.setZoom = function(factor) {
+      let zoom = canvas.getZoom() * factor;
+      if (zoom > 10) zoom = 10;
+      if (zoom < 0.1) zoom = 0.1;
+      canvas.zoomToPoint({ x: 400, y: 300 }, zoom);
+      hideDimTooltip();
+      updateFloatingToolbar();
+    };
+
+    // Zoom and Pan
+    canvas.on('mouse:wheel', function(opt) {
+      var delta = opt.e.deltaY;
+      var zoom = canvas.getZoom();
+      zoom *= 0.999 ** delta;
+      if (zoom > 10) zoom = 10;
+      if (zoom < 0.1) zoom = 0.1;
+      canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
+      opt.e.preventDefault();
+      opt.e.stopPropagation();
+      hideDimTooltip();
+      updateFloatingToolbar();
+    });
+
+    canvas.on('mouse:down', function(opt) {
+      var evt = opt.e;
+      if (evt.altKey === true) {
+        this.isDragging = true;
+        this.selection = false;
+        this.lastPosX = evt.clientX;
+        this.lastPosY = evt.clientY;
+      }
+    });
+    canvas.on('mouse:move', function(opt) {
+      if (this.isDragging) {
+        var e = opt.e;
+        var vpt = this.viewportTransform;
+        vpt[4] += e.clientX - this.lastPosX;
+        vpt[5] += e.clientY - this.lastPosY;
+        this.requestRenderAll();
+        this.lastPosX = e.clientX;
+        this.lastPosY = e.clientY;
+      }
+    });
+    canvas.on('mouse:up', function(opt) {
+      this.setViewportTransform(this.viewportTransform);
+      this.isDragging = false;
+      this.selection = true;
+    });
+
+    // 2. Xử lý xóa vật thể bằng phím Delete / Backspace
+    window.addEventListener('keydown', (e) => {
+      // Bỏ qua nếu đang gõ vào input, textarea
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+      
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        const activeObj = canvas.getActiveObject();
+        // Không xóa nếu đang gõ text trên canvas
+        if (activeObj && activeObj.isEditing) return;
+        
+        const activeObjects = canvas.getActiveObjects();
+        if (activeObjects.length) {
+          canvas.discardActiveObject();
+          activeObjects.forEach(obj => canvas.remove(obj));
+          canvas.requestRenderAll();
+        }
+      }
+    });
+
+    // 3. Custom Class cho Vector Lực (Arrow)
+    // - Tính năng đặc biệt: Giữ nguyên hình dáng đầu mũi tên khi kéo giãn (scale)
+    fabric.Arrow = fabric.util.createClass(fabric.Line, {
+      type: 'arrow',
+      initialize: function(points, options) {
+        options = options || {};
+        options.strokeUniform = true; // Không cho phép thay đổi độ dày nét vẽ khi scale
+        this.callSuper('initialize', points, options);
+        this.label = options.label || '';
+      },
+      _render: function(ctx) {
+        this.callSuper('_render', ctx);
+        ctx.save();
+        
+        const p = this.calcLinePoints();
+        const xDiff = this.x2 - this.x1;
+        const yDiff = this.y2 - this.y1;
+        const angle = Math.atan2(yDiff, xDiff);
+        
+        // Dịch chuyển đến điểm cuối mũi tên
+        ctx.translate(p.x2, p.y2);
+        ctx.rotate(angle);
+        
+        // Khử scale để đầu mũi tên luôn giữ kích thước thật, không bị kéo giãn méo mó
+        if (this.scaleX) ctx.scale(1 / this.scaleX, 1);
+        if (this.scaleY) ctx.scale(1, 1 / this.scaleY);
+
+        // Vẽ tam giác đầu mũi tên
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(-15, 6);
+        ctx.lineTo(-15, -6);
+        ctx.closePath();
+        ctx.fillStyle = this.stroke;
+        ctx.fill();
+
+        // Vẽ nhãn ký hiệu (Label)
+        if (this.label) {
+            ctx.font = 'italic 20px "Times New Roman", Arial';
+            // Bù lại góc xoay để chữ luôn thẳng (Tùy chọn, hiện tại đang xoay theo trục mũi tên)
+            ctx.fillText(this.label, 10, -10);
+        }
+
+        ctx.restore();
+      }
+    });
+
+    fabric.DoubleArrow = fabric.util.createClass(fabric.Line, {
+      type: 'doubleArrow',
+      initialize: function(points, options) {
+        options = options || {};
+        options.strokeUniform = true; 
+        this.callSuper('initialize', points, options);
+      },
+      _render: function(ctx) {
+        this.callSuper('_render', ctx);
+        
+        const p = this.calcLinePoints();
+        const xDiff = this.x2 - this.x1;
+        const yDiff = this.y2 - this.y1;
+        const angle = Math.atan2(yDiff, xDiff);
+        
+        ctx.save();
+        ctx.translate(p.x2, p.y2);
+        ctx.rotate(angle);
+        if (this.scaleX) ctx.scale(1 / this.scaleX, 1);
+        if (this.scaleY) ctx.scale(1, 1 / this.scaleY);
+        ctx.beginPath();
+        ctx.moveTo(0, 0); ctx.lineTo(-15, 6); ctx.lineTo(-15, -6);
+        ctx.closePath();
+        ctx.fillStyle = this.stroke; ctx.fill();
+        ctx.restore();
+
+        ctx.save();
+        ctx.translate(p.x1, p.y1);
+        ctx.rotate(angle + Math.PI);
+        if (this.scaleX) ctx.scale(1 / this.scaleX, 1);
+        if (this.scaleY) ctx.scale(1, 1 / this.scaleY);
+        ctx.beginPath();
+        ctx.moveTo(0, 0); ctx.lineTo(-15, 6); ctx.lineTo(-15, -6);
+        ctx.closePath();
+        ctx.fillStyle = this.stroke; ctx.fill();
+        ctx.restore();
+      }
+    });
+
+    // Angle Tooltip
+    const angleTooltip = document.createElement('div');
+    angleTooltip.className = "fixed bg-slate-800 text-white text-xs px-2 py-1 rounded pointer-events-none hidden z-50 shadow-lg";
+    document.body.appendChild(angleTooltip);
+
+    canvas.on('object:rotating', function(e) {
+      const obj = e.target;
+      let angle = Math.round(obj.angle % 360);
+      if (angle < 0) angle += 360;
+      angleTooltip.innerText = angle + '°';
+      angleTooltip.style.display = 'block';
+      angleTooltip.style.left = (e.e.clientX + 15) + 'px';
+      angleTooltip.style.top = (e.e.clientY + 15) + 'px';
+    });
+
+    canvas.on('mouse:up', function() {
+      angleTooltip.style.display = 'none';
+    });
+
+    // 4. Các hàm tạo hình vật lý
+        function addCuboid(isCube) {
+      const w = isCube ? 60 : 100;
+      const h = isCube ? 60 : 50;
+      const dx = isCube ? 25 : 30;
+      const dy = isCube ? -25 : -20;
+      
+      const opts = { stroke: '#333333', strokeWidth: 2, strokeUniform: true, strokeLineCap: 'round', strokeLineJoin: 'round' };
+      const dashOpts = { ...opts, strokeDashArray: [5, 5] };
+      
+      const backTop = new fabric.Line([dx, dy, dx + w, dy], opts);
+      const backRight = new fabric.Line([dx + w, dy, dx + w, dy + h], opts);
+      const backBottom = new fabric.Line([dx, dy + h, dx + w, dy + h], dashOpts);
+      const backLeft = new fabric.Line([dx, dy, dx, dy + h], dashOpts);
+      
+      const connTL = new fabric.Line([0, 0, dx, dy], opts);
+      const connTR = new fabric.Line([w, 0, dx + w, dy], opts);
+      const connBR = new fabric.Line([w, h, dx + w, dy + h], opts);
+      const connBL = new fabric.Line([0, h, dx, dy + h], dashOpts);
+
+      const front = new fabric.Rect({ left: 0, top: 0, width: w, height: h, fill: 'transparent', ...opts, originX: 'left', originY: 'top' });
+
+      const group = new fabric.Group([
+        backBottom, backLeft, backTop, backRight, 
+        connBL, connTL, connTR, connBR, 
+        front
+      ], {
+        left: 400, top: 300, originX: 'center', originY: 'center'
+      });
+      
+      canvas.add(group);
+      canvas.setActiveObject(group);
+    }
+
+    function addSphere() {
+      const w = 60;
+      const ry = w/4;
+      
+      const circleFill = new fabric.Circle({
+        left: 0, top: 0, radius: w/2,
+        fill: 'transparent', strokeWidth: 0, originX: 'center', originY: 'center'
+      });
+      
+      const circleStroke = new fabric.Circle({
+        left: 0, top: 0, radius: w/2,
+        fill: 'transparent', stroke: '#0f172a', strokeWidth: 2, originX: 'center', originY: 'center', strokeUniform: true
+      });
+      
+      const frontArc = new fabric.Path(`M ${-w/2} 0 A ${w/2} ${ry} 0 0 0 ${w/2} 0`, {
+        left: 0, top: ry/2, fill: 'transparent', stroke: '#0f172a', strokeWidth: 2, originX: 'center', originY: 'center', strokeUniform: true
+      });
+
+      const backArc = new fabric.Path(`M ${-w/2} 0 A ${w/2} ${ry} 0 0 1 ${w/2} 0`, {
+        left: 0, top: -ry/2, fill: 'transparent', stroke: '#0f172a', strokeWidth: 2, strokeDashArray: [5,5], originX: 'center', originY: 'center', strokeUniform: true
+      });
+
+      const group = new fabric.Group([circleFill, backArc, frontArc, circleStroke], {
+        left: 400, top: 300, originX: 'center', originY: 'center'
+      });
+      
+      canvas.add(group);
+      canvas.setActiveObject(group);
+    }
+
+    function addRod() {
+      const rect = new fabric.Rect({
+        left: 400, top: 300,
+        width: 150, height: 15,
+        originX: 'center', originY: 'center',
+        fill: '#94a3b8',
+        stroke: '#0f172a', strokeWidth: 2,
+        strokeUniform: true
+      });
+      canvas.add(rect);
+      canvas.setActiveObject(rect);
+    }
+
+    function addCylinder() {
+      const w = 60, h = 100, ry = 15;
+      
+      const bottomFill = new fabric.Ellipse({ 
+        left: 0, top: h/2, rx: w/2, ry: ry, 
+        fill: 'transparent', originX: 'center', originY: 'center', strokeWidth: 0 
+      });
+      
+      const bodyFill = new fabric.Rect({ 
+        left: 0, top: 0, width: w, height: h, 
+        fill: 'transparent', strokeWidth: 0, originX: 'center', originY: 'center' 
+      });
+      
+      const topEllipse = new fabric.Ellipse({ 
+        left: 0, top: -h/2, rx: w/2, ry: ry, 
+        fill: 'transparent', stroke: '#0f172a', strokeWidth: 2, 
+        originX: 'center', originY: 'center' 
+      });
+      
+      const sideL = new fabric.Line([0, -h/2, 0, h/2], { 
+        left: -w/2, top: 0,
+        stroke: '#0f172a', strokeWidth: 2, originX: 'center', originY: 'center' 
+      });
+      
+      const sideR = new fabric.Line([0, -h/2, 0, h/2], { 
+        left: w/2, top: 0,
+        stroke: '#0f172a', strokeWidth: 2, originX: 'center', originY: 'center' 
+      });
+      
+      const pathFront = new fabric.Path(`M ${-w/2} 0 A ${w/2} ${ry} 0 0 0 ${w/2} 0`, {
+        fill: '', stroke: '#0f172a', strokeWidth: 2, originX: 'center', originY: 'center',
+        left: 0, top: h/2 + ry/2
+      });
+      
+      const pathBack = new fabric.Path(`M ${-w/2} 0 A ${w/2} ${ry} 0 0 1 ${w/2} 0`, {
+        fill: '', stroke: '#0f172a', strokeWidth: 2, strokeDashArray: [5, 5], originX: 'center', originY: 'center',
+        left: 0, top: h/2 - ry/2
+      });
+      
+      const group = new fabric.Group([bottomFill, bodyFill, pathBack, pathFront, sideL, sideR, topEllipse], {
+        left: 400, top: 300, originX: 'center', originY: 'center'
+      });
+      canvas.add(group);
+      canvas.setActiveObject(group);
+    }
+
+    function addHoop() {
+      const hoop = new fabric.Circle({
+        left: 400, top: 300, radius: 35, fill: '', stroke: '#0f172a', strokeWidth: 8,
+        originX: 'center', originY: 'center', lockUniScaling: true
+      });
+      canvas.add(hoop);
+      canvas.setActiveObject(hoop);
+    }
+
+    function addHemisphere() {
+      const w = 100, h = 50, ry = 15;
+      
+      const bottomFill = new fabric.Ellipse({ 
+        left: 0, top: 0, rx: w/2, ry: ry, 
+        fill: 'transparent', strokeWidth: 0, originX: 'center', originY: 'center' 
+      });
+      
+      const domeFill = new fabric.Path(`M ${-w/2} 0 A ${w/2} ${h} 0 0 1 ${w/2} 0`, {
+        left: 0, top: -h/2, fill: 'transparent', strokeWidth: 0, originX: 'center', originY: 'center'
+      });
+
+      const domeStroke = new fabric.Path(`M ${-w/2} 0 A ${w/2} ${h} 0 0 1 ${w/2} 0`, {
+        left: 0, top: -h/2, fill: '', stroke: '#0f172a', strokeWidth: 2, originX: 'center', originY: 'center', strokeUniform: true
+      });
+
+      const frontArc = new fabric.Path(`M ${-w/2} 0 A ${w/2} ${ry} 0 0 0 ${w/2} 0`, {
+        left: 0, top: ry/2, fill: '', stroke: '#0f172a', strokeWidth: 2, originX: 'center', originY: 'center', strokeUniform: true
+      });
+
+      const backArc = new fabric.Path(`M ${-w/2} 0 A ${w/2} ${ry} 0 0 1 ${w/2} 0`, {
+        left: 0, top: -ry/2, fill: '', stroke: '#0f172a', strokeWidth: 2, strokeDashArray: [5,5], originX: 'center', originY: 'center', strokeUniform: true
+      });
+
+      const group = new fabric.Group([bottomFill, domeFill, backArc, frontArc, domeStroke], {
+        left: 400, top: 300, originX: 'center', originY: 'center'
+      });
+      canvas.add(group);
+      canvas.setActiveObject(group);
+    }
+
+    function addPolygon(sides) {
+      const radius = 40;
+      const points = [];
+      for (let i = 0; i < sides; i++) {
+        const angle = (Math.PI * 2 / sides) * i - Math.PI / 2;
+        points.push({ x: radius * Math.cos(angle), y: radius * Math.sin(angle) });
+      }
+      const poly = new fabric.Polygon(points, {
+        left: 400, top: 300, fill: 'transparent', stroke: '#0f172a', strokeWidth: 2,
+        originX: 'center', originY: 'center', strokeUniform: true
+      });
+      canvas.add(poly);
+      canvas.setActiveObject(poly);
+    }
+
+    function addRect(isSquare) {
+      const rect = new fabric.Rect({
+        left: 400, top: 300, width: isSquare ? 60 : 100, height: 60,
+        fill: 'transparent', stroke: '#0f172a', strokeWidth: 2, strokeUniform: true, originX: 'center', originY: 'center'
+      });
+      canvas.add(rect); canvas.setActiveObject(rect);
+    }
+    
+    function addCircle2D() {
+      const circle = new fabric.Circle({
+        left: 400, top: 300, radius: 35, fill: 'transparent', stroke: '#0f172a', strokeWidth: 2, strokeUniform: true, originX: 'center', originY: 'center'
+      });
+      canvas.add(circle); canvas.setActiveObject(circle);
+    }
+
+    function addTriangle() {
+      const tri = new fabric.Triangle({
+        left: 400, top: 300, width: 60, height: 60, fill: 'transparent', stroke: '#0f172a', strokeWidth: 2, strokeUniform: true, originX: 'center', originY: 'center'
+      });
+      canvas.add(tri); canvas.setActiveObject(tri);
+    }
+
+    function addQuad() {
+      const quad = new fabric.Polygon([
+        {x: -20, y: -30}, {x: 40, y: -30}, {x: 60, y: 30}, {x: -40, y: 30}
+      ], {
+        left: 400, top: 300, fill: 'transparent', stroke: '#0f172a', strokeWidth: 2, strokeUniform: true, originX: 'center', originY: 'center'
+      });
+      canvas.add(quad); canvas.setActiveObject(quad);
+    }
+
+    function addLineType(type) {
+        if (type === 'solid' || type === 'dashed') {
+            const line = new fabric.Line([-50, 0, 50, 0], {
+                left: 400, top: 300, stroke: '#0f172a', strokeWidth: 2, strokeUniform: true, originX: 'center', originY: 'center',
+                strokeDashArray: type === 'dashed' ? [5, 5] : null
+            });
+            canvas.add(line); canvas.setActiveObject(line);
+        } else if (type === 'arrow1') {
+            const arrow = new fabric.Arrow([-50, 0, 50, 0], {
+                left: 400, top: 300, stroke: '#0f172a', strokeWidth: 2, originX: 'center', originY: 'center'
+            });
+            canvas.add(arrow); canvas.setActiveObject(arrow);
+        } else if (type === 'arrow2') {
+            const arrow = new fabric.DoubleArrow([-50, 0, 50, 0], {
+                left: 400, top: 300, stroke: '#0f172a', strokeWidth: 2, originX: 'center', originY: 'center'
+            });
+            canvas.add(arrow); canvas.setActiveObject(arrow);
+        }
+    }
+
+            function addTetrahedron() {
+        const T = {x: 60, y: -80};
+        const L = {x: 0, y: 0};
+        const R = {x: 120, y: 0};
+        const F = {x: 60, y: 40};
+        
+        const opts = {stroke: '#333333', strokeWidth: 2, strokeUniform: true, strokeLineCap: 'round', strokeLineJoin: 'round'};
+        const dashOpts = {...opts, strokeDashArray: [5,5]};
+
+        const TL = new fabric.Line([T.x, T.y, L.x, L.y], opts);
+        const TR = new fabric.Line([T.x, T.y, R.x, R.y], opts);
+        const TF = new fabric.Line([T.x, T.y, F.x, F.y], opts);
+        const LF = new fabric.Line([L.x, L.y, F.x, F.y], opts);
+        const RF = new fabric.Line([R.x, R.y, F.x, F.y], opts);
+        const LR = new fabric.Line([L.x, L.y, R.x, R.y], dashOpts);
+        
+        const boundary = new fabric.Polygon([T, L, F, R], {fill: 'transparent', strokeWidth: 0});
+
+        const group = new fabric.Group([LR, boundary, TL, TR, TF, LF, RF], {
+            left: 400, top: 300, originX: 'center', originY: 'center'
+        });
+        canvas.add(group);
+        canvas.setActiveObject(group);
+    }
+
+            function addPyramid() {
+        const T = {x: 60, y: -90};
+        const FL = {x: 0, y: 30};
+        const FR = {x: 90, y: 30};
+        const BR = {x: 120, y: -15};
+        const BL = {x: 30, y: -15};
+        
+        const opts = {stroke: '#333333', strokeWidth: 2, strokeUniform: true, strokeLineCap: 'round', strokeLineJoin: 'round'};
+        const dashOpts = {...opts, strokeDashArray: [5,5]};
+
+        const TFL = new fabric.Line([T.x, T.y, FL.x, FL.y], opts);
+        const TFR = new fabric.Line([T.x, T.y, FR.x, FR.y], opts);
+        const TBR = new fabric.Line([T.x, T.y, BR.x, BR.y], opts);
+        const TBL = new fabric.Line([T.x, T.y, BL.x, BL.y], dashOpts);
+        
+        const FLFR = new fabric.Line([FL.x, FL.y, FR.x, FR.y], opts);
+        const FRBR = new fabric.Line([FR.x, FR.y, BR.x, BR.y], opts);
+        const BRBL = new fabric.Line([BR.x, BR.y, BL.x, BL.y], dashOpts);
+        const FLBL = new fabric.Line([FL.x, FL.y, BL.x, BL.y], dashOpts);
+
+        const boundary = new fabric.Polygon([T, FL, FR, BR], {fill: 'transparent', strokeWidth: 0});
+
+        const group = new fabric.Group([TBL, FLBL, BRBL, boundary, TFL, TFR, TBR, FLFR, FRBR], {
+            left: 400, top: 300, originX: 'center', originY: 'center'
+        });
+        canvas.add(group);
+        canvas.setActiveObject(group);
+    }
+
+    function addPendulum() {
+      const line = new fabric.Line([0, 0, 0, 150], {
+        stroke: '#0f172a', strokeWidth: 2, originX: 'center', originY: 'top'
+      });
+      const bob = new fabric.Circle({
+        radius: 12, fill: '#94a3b8', stroke: '#0f172a', strokeWidth: 2,
+        left: 0, top: 150, originX: 'center', originY: 'center'
+      });
+      const group = new fabric.Group([line, bob], {
+        left: 400, top: 200, originX: 'center', originY: 'top'
+      });
+      canvas.add(group);
+      canvas.setActiveObject(group);
+    }
+
+    function addLabStand() {
+      const base = new fabric.Rect({
+        width: 140, height: 24, fill: '#64748b', rx: 3, ry: 3,
+        left: -70, top: 130, stroke: '#0f172a', strokeWidth: 3
+      });
+      const rod = new fabric.Rect({
+        width: 12, height: 300, fill: '#94a3b8',
+        left: -6, top: -170, stroke: '#0f172a', strokeWidth: 3
+      });
+      const hRod = new fabric.Rect({
+        width: 160, height: 10, fill: '#94a3b8',
+        left: -20, top: -140, stroke: '#0f172a', strokeWidth: 3
+      });
+      const clamp1 = new fabric.Rect({
+        width: 24, height: 24, fill: '#475569', rx: 3, ry: 3,
+        left: -12, top: -147, stroke: '#0f172a', strokeWidth: 3
+      });
+      const clamp2 = new fabric.Circle({
+        radius: 6, fill: '#1e293b',
+        left: -6, top: -141, stroke: '#0f172a', strokeWidth: 3
+      });
+      const group = new fabric.Group([base, rod, hRod, clamp1, clamp2], {
+        left: 300, top: 200, originX: 'center', originY: 'center'
+      });
+      canvas.add(group);
+      canvas.setActiveObject(group);
+    }
+
+        function addSpringScale() {
+      const body = new fabric.Rect({
+        left: -25, top: -90, width: 50, height: 180,
+        fill: '#f1f5f9', stroke: '#1e3a8a', strokeWidth: 3, rx: 2, ry: 2
+      });
+      
+      const topHook = new fabric.Path('M 0 -90 L 0 -100 C 0 -110 -10 -100 -10 -110 A 10 10 0 0 1 10 -110', {
+        fill: 'transparent', stroke: '#475569', strokeWidth: 3, strokeLineCap: 'round'
+      });
+      
+      let springPath = 'M 0 -90 L 0 -85';
+      for(let i=0; i<12; i++) {
+        springPath += ` L ${i%2===0 ? 10 : -10} ${-80 + i*5}`;
+      }
+      springPath += ' L 0 -25 L 0 -16';
+      const spring = new fabric.Path(springPath, {
+        fill: 'transparent', stroke: '#3b82f6', strokeWidth: 2.5, strokeLineJoin: 'round'
+      });
+      
+      const innerRod = new fabric.Path('M 0 -16 L 0 110', {
+        stroke: '#475569', strokeWidth: 3, fill: 'transparent'
+      });
+      
+      const bottomHook = new fabric.Path('M 0 110 L 0 120 C 0 130 -10 120 -10 130 A 10 10 0 0 0 10 130', {
+        fill: 'transparent', stroke: '#475569', strokeWidth: 3, strokeLineCap: 'round'
+      });
+      
+      const marker = new fabric.Path('M -15 -16 L 15 -16', {
+        stroke: '#ef4444', strokeWidth: 4, fill: 'transparent'
+      });
+      
+      const tickElems = [];
+      for(let i=0; i<=5; i++) {
+        let ty = -16 + i * 18;
+        tickElems.push(new fabric.Line([5, ty, 15, ty], { stroke: '#1e3a8a', strokeWidth: 2 }));
+        if(i < 5) {
+          tickElems.push(new fabric.Line([8, ty + 9, 15, ty + 9], { stroke: '#1e3a8a', strokeWidth: 1.5 }));
+        }
+        tickElems.push(new fabric.Text(i.toString(), {
+          left: 20, top: ty, fontSize: 12, fill: '#0f172a', fontWeight: 'bold', originY: 'center'
+        }));
+      }
+      
+      const nText = new fabric.Text('N', {
+        left: -20, top: 74, fontSize: 16, fill: '#0f172a', fontWeight: 'bold'
+      });
+      
+      const group = new fabric.Group([body, topHook, spring, innerRod, bottomHook, marker, nText, ...tickElems], {
+        left: 400, top: 300, originX: 'center', originY: 'center'
+      });
+      canvas.add(group);
+      canvas.setActiveObject(group);
+    }
+
+    function addWeight() {
+      const w = 40, h = 50, rx = 20, ry = 6;
+      
+      const cylPath = `M -${rx} -${h/2} L -${rx} ${h/2} A ${rx} ${ry} 0 0 0 ${rx} ${h/2} L ${rx} -${h/2} A ${rx} ${ry} 0 0 1 -${rx} -${h/2} Z`;
+      const body = new fabric.Path(cylPath, {
+        fill: '#64748b', stroke: '#0f172a', strokeWidth: 3
+      });
+      
+      const topOval = new fabric.Ellipse({
+        rx: rx, ry: ry, fill: '#94a3b8', stroke: '#0f172a', strokeWidth: 3,
+        left: -rx, top: -h/2 - ry
+      });
+      
+      const hook = new fabric.Path(`M 0 -${h/2+ry} L 0 -${h/2+ry+10} A 8 8 0 1 1 12 -${h/2+ry+8}`, {
+        fill: 'transparent', stroke: '#0f172a', strokeWidth: 3
+      });
+      
+      const group = new fabric.Group([body, topOval, hook], {
+        left: 450, top: 300, originX: 'center', originY: 'center'
+      });
+      canvas.add(group);
+      canvas.setActiveObject(group);
+    }
+
+    function addOverflowCan() {
+      // Body has exactly one gap on the right: between y=-40 and y=-30
+      const bodyPath = new fabric.Path('M -30 -50 L -30 50 A 5 5 0 0 0 -25 55 L 25 55 A 5 5 0 0 0 30 50 L 30 -30 M 30 -40 L 30 -50', {
+        fill: 'transparent', stroke: '#0f172a', strokeWidth: 3, strokeLineJoin: 'round', strokeLineCap: 'round'
+      });
+      // Spout attaches perfectly at the gap
+      const spout = new fabric.Path('M 30 -40 L 55 -25 M 55 -20 L 30 -30', {
+        fill: 'transparent', stroke: '#0f172a', strokeWidth: 3, strokeLineJoin: 'round', strokeLineCap: 'round'
+      });
+      // Liquid level exactly at the bottom lip of the spout (y=-30)
+      
+      const marks = [];
+      for(let i=0; i<9; i++) {
+        let y = 40 - i*10;
+        marks.push(new fabric.Line([-30, y, -22, y], {stroke: '#0f172a', strokeWidth: 2}));
+      }
+      const group = new fabric.Group([bodyPath, spout, ...marks], {
+        left: 400, top: 300, originX: 'center', originY: 'center'
+      });
+      canvas.add(group);
+      canvas.setActiveObject(group);
+    }
+    function addGraduatedCylinder() {
+      const bodyPath = new fabric.Path('M -15 -80 L -15 80 A 5 5 0 0 0 -10 85 L 10 85 A 5 5 0 0 0 15 80 L 15 -80', {
+        fill: 'transparent', stroke: '#0f172a', strokeWidth: 3
+      });
+      const base = new fabric.Line([-25, 85, 25, 85], { stroke: '#0f172a', strokeWidth: 4, strokeLineCap: 'round' });
+      const marks = [];
+      for(let i=0; i<=15; i++) {
+        let y = 70 - i*9;
+        let isMajor = i % 5 === 0;
+        marks.push(new fabric.Line([-15, y, isMajor ? -5 : -10, y], {stroke: '#0f172a', strokeWidth: isMajor ? 2 : 1.5}));
+      }
+      const group = new fabric.Group([bodyPath, base, ...marks], {
+        left: 400, top: 300, originX: 'center', originY: 'center'
+      });
+      canvas.add(group);
+      canvas.setActiveObject(group);
+    }
+
+    function addUTube() {
+      const outer = new fabric.Path('M -30 -60 L -30 40 A 30 30 0 0 0 30 40 L 30 -60', {
+        fill: 'transparent', stroke: '#0f172a', strokeWidth: 3
+      });
+      const inner = new fabric.Path('M -10 -60 L -10 40 A 10 10 0 0 0 10 40 L 10 -60', {
+        fill: 'transparent', stroke: '#0f172a', strokeWidth: 3
+      });
+      
+      const group = new fabric.Group([outer, inner], {
+        left: 400, top: 300, originX: 'center', originY: 'center'
+      });
+      canvas.add(group);
+      canvas.setActiveObject(group);
+    }
+    function addPhotogate() {
+      const gate = new fabric.Path('M -40 40 L -40 -30 A 10 10 0 0 1 -30 -40 L 30 -40 A 10 10 0 0 1 40 -30 L 40 40 L 20 40 L 20 -20 L -20 -20 L -20 40 Z', {
+        fill: '#334155', stroke: '#0f172a', strokeWidth: 2.5, strokeLineJoin: 'round'
+      });
+      const beam = new fabric.Line([-20, 20, 20, 20], {
+        stroke: '#ef4444', strokeWidth: 2.5, strokeDashArray: [5, 3]
+      });
+      const group = new fabric.Group([gate, beam], {
+        left: 400, top: 300, originX: 'center', originY: 'center'
+      });
+      canvas.add(group);
+      canvas.setActiveObject(group);
+    }
+
+    function addDigitalTimer() {
+      const box = new fabric.Rect({
+        width: 240, height: 80, fill: '#eaddc5', stroke: '#d1c4a9', strokeWidth: 2, rx: 5, ry: 5,
+        left: -120, top: -40
+      });
+      const innerBox = new fabric.Rect({
+        width: 232, height: 72, fill: '#f5efde', stroke: '#1e293b', strokeWidth: 1.5,
+        left: -116, top: -36
+      });
+      
+      const displayFrame = new fabric.Rect({
+        width: 76, height: 30, fill: '#111827', stroke: '#eaddc5', strokeWidth: 2, rx: 2, ry: 2,
+        left: -100, top: -15
+      });
+      const displayText = new fabric.Text('0.000', {
+        fontSize: 22, fill: '#ef4444', fontFamily: '"Share Tech Mono", monospace', fontWeight: 'bold',
+        left: -62, top: 0, originX: 'center', originY: 'center'
+      });
+      displayText.isDisplayValue = true;
+      
+      const timeLabel = new fabric.Text('THỜI GIAN (s)', {
+        fontSize: 9, fill: '#0f172a', fontFamily: 'sans-serif', fontWeight: 'bold',
+        left: -62, top: 23, originX: 'center', originY: 'center'
+      });
+
+      const knobOuter = new fabric.Circle({
+        radius: 12, fill: '#e2e8f0', stroke: '#94a3b8', strokeWidth: 2,
+        left: 20, top: -5, originX: 'center', originY: 'center'
+      });
+      const knobInner = new fabric.Circle({
+        radius: 8, fill: '#f8fafc',
+        left: 20, top: -5, originX: 'center', originY: 'center'
+      });
+      const knobPointer = new fabric.Line([20, -5, 14, -11], {
+        stroke: '#475569', strokeWidth: 2, strokeLineCap: 'round'
+      });
+      const modeLabel = new fabric.Text('MODE', {
+        fontSize: 9, fill: '#0f172a', fontFamily: 'sans-serif', fontWeight: 'bold',
+        left: 20, top: 23, originX: 'center', originY: 'center'
+      });
+      
+      const ticks = [];
+      const modes = ['A', 'B', 'A+B', 'A-B', 'T'];
+      for (let i = 0; i < 5; i++) {
+        let angle = -Math.PI + (Math.PI / 4.5) * (i + 0.5);
+        let x1 = 20 + Math.cos(angle) * 16;
+        let y1 = -5 + Math.sin(angle) * 16;
+        let x2 = 20 + Math.cos(angle) * 20;
+        let y2 = -5 + Math.sin(angle) * 20;
+        ticks.push(new fabric.Line([x1, y1, x2, y2], { stroke: '#0f172a', strokeWidth: 1.5 }));
+        ticks.push(new fabric.Text(modes[i], {
+          fontSize: 8, fill: '#0f172a', fontFamily: 'sans-serif', fontWeight: 'bold',
+          left: 20 + Math.cos(angle) * 26, top: -5 + Math.sin(angle) * 26,
+          originX: 'center', originY: 'center'
+        }));
+      }
+
+      const resetBtnOuter = new fabric.Circle({
+        radius: 8, fill: '#94a3b8', stroke: '#64748b', strokeWidth: 1,
+        left: 85, top: -15, originX: 'center', originY: 'center'
+      });
+      const resetBtnInner = new fabric.Circle({
+        radius: 6, fill: '#ef4444',
+        left: 85, top: -15, originX: 'center', originY: 'center'
+      });
+      const resetLabel = new fabric.Text('RESET', {
+        fontSize: 9, fill: '#0f172a', fontFamily: 'sans-serif', fontWeight: 'bold',
+        left: 85, top: 2, originX: 'center', originY: 'center'
+      });
+
+      const group = new fabric.Group([box, innerBox, displayFrame, displayText, timeLabel, knobOuter, knobInner, knobPointer, modeLabel, ...ticks, resetBtnOuter, resetBtnInner, resetLabel], {
+        left: 400, top: 300, originX: 'center', originY: 'center'
+      });
+      group.isDigitalDisplay = true;
+      canvas.add(group);
+      canvas.setActiveObject(group);
+    }
+
+    function addPanBalance() {
+      const rim = new fabric.Rect({
+        left: -125, top: 80, width: 250, height: 10, rx: 3, ry: 3,
+        fill: '#475569', stroke: '#1e293b', strokeWidth: 2
+      });
+      const baseBody = new fabric.Path('M -120 80 L -105 45 L -40 45 L -20 20 L 20 20 L 40 45 L 105 45 L 120 80 Z', {
+        fill: '#64748b', stroke: '#1e293b', strokeWidth: 2, strokeLineJoin: 'round'
+      });
+      const pillar = new fabric.Path('M -15 20 L -8 -90 L 8 -90 L 15 20 Z', {
+        fill: '#334155', stroke: '#0f172a', strokeWidth: 2, strokeLineJoin: 'round'
+      });
+      
+      const scaleBg = new fabric.Path('M -25 -120 L 25 -120 L 15 -90 L -15 -90 Z', {
+        fill: '#0f172a'
+      });
+      const scaleWin = new fabric.Rect({
+        left: -16, top: -115, width: 32, height: 12, fill: '#ffffff'
+      });
+      const ticks = [];
+      for (let i = -3; i <= 3; i++) {
+        ticks.push(new fabric.Line([i*4, -115, i*4, i===0 ? -105 : -109], { stroke: i===0 ? '#ef4444' : '#0f172a', strokeWidth: 1 }));
+      }
+      
+      const pointer = new fabric.Path('M -2 10 L 2 10 L 0 -115 Z', {
+        fill: '#ef4444'
+      });
+      
+      const lPost = new fabric.Rect({ left: -94, top: -45, width: 8, height: 90, fill: '#94a3b8', stroke: '#1e293b', strokeWidth: 2 });
+      const rPost = new fabric.Rect({ left: 86, top: -45, width: 8, height: 90, fill: '#94a3b8', stroke: '#1e293b', strokeWidth: 2 });
+      
+      const beam = new fabric.Path('M -105 -8 L 105 -8 A 8 8 0 0 1 105 8 Q 50 25 20 8 L -20 8 Q -50 25 -105 8 A 8 8 0 0 1 -105 -8', {
+        fill: '#94a3b8', stroke: '#475569', strokeWidth: 2
+      });
+      
+      const calibBar = new fabric.Line([105, 0, 125, 0], { stroke: '#94a3b8', strokeWidth: 3 });
+      const calibWeight = new fabric.Rect({ left: 112, top: -4, width: 8, height: 8, fill: '#f8fafc', stroke: '#475569', strokeWidth: 1.5 });
+      
+      const cBracket = new fabric.Rect({ left: -10, top: -15, width: 20, height: 30, rx: 3, ry: 3, fill: '#cbd5e1', stroke: '#475569', strokeWidth: 2 });
+      const cScrew = new fabric.Circle({ left: -3, top: -3, radius: 3, fill: '#f8fafc', stroke: '#475569', strokeWidth: 1 });
+
+      const lBracket = new fabric.Rect({ left: -100, top: -15, width: 20, height: 30, rx: 3, ry: 3, fill: '#cbd5e1', stroke: '#475569', strokeWidth: 2 });
+      const lScrew = new fabric.Circle({ left: -93, top: -3, radius: 3, fill: '#f8fafc', stroke: '#475569', strokeWidth: 1 });
+
+      const rBracket = new fabric.Rect({ left: 80, top: -15, width: 20, height: 30, rx: 3, ry: 3, fill: '#cbd5e1', stroke: '#475569', strokeWidth: 2 });
+      const rScrew = new fabric.Circle({ left: 87, top: -3, radius: 3, fill: '#f8fafc', stroke: '#475569', strokeWidth: 1 });
+      
+      const lPanSupport = new fabric.Rect({ left: -110, top: -45, width: 40, height: 5, rx: 2, ry: 2, fill: '#334155' });
+      const lPanBottom = new fabric.Path('M -140 -45 C -140 -20 -40 -20 -40 -45 Z', {
+        fill: '#94a3b8', stroke: '#475569', strokeWidth: 2, strokeLineJoin: 'round'
+      });
+      const lPanTop = new fabric.Ellipse({
+        left: -140, top: -53, rx: 50, ry: 8, fill: '#cbd5e1', stroke: '#64748b', strokeWidth: 2
+      });
+      
+      const rPanSupport = new fabric.Rect({ left: 70, top: -45, width: 40, height: 5, rx: 2, ry: 2, fill: '#334155' });
+      const rPanBottom = new fabric.Path('M 40 -45 C 40 -20 140 -20 140 -45 Z', {
+        fill: '#94a3b8', stroke: '#475569', strokeWidth: 2, strokeLineJoin: 'round'
+      });
+      const rPanTop = new fabric.Ellipse({
+        left: 40, top: -53, rx: 50, ry: 8, fill: '#cbd5e1', stroke: '#64748b', strokeWidth: 2
+      });
+      
+      const group = new fabric.Group([
+        pillar, scaleBg, scaleWin, ...ticks, pointer, rim, baseBody, lPost, rPost,
+        beam, calibBar, calibWeight, cBracket, cScrew, lBracket, lScrew, rBracket, rScrew,
+        lPanSupport, lPanBottom, lPanTop, rPanSupport, rPanBottom, rPanTop
+      ], {
+        left: 400, top: 300, originX: 'center', originY: 'center'
+      });
+      canvas.add(group);
+      canvas.setActiveObject(group);
+    }
+    function addDigitalBalance() {
+      const base = new fabric.Rect({
+        width: 120, height: 25, fill: '#ffffff', stroke: '#0f172a', strokeWidth: 2.5, rx: 3, ry: 3,
+        left: -60, top: 0
+      });
+      const panSupport = new fabric.Rect({
+        width: 40, height: 10, fill: '#e2e8f0', stroke: '#0f172a', strokeWidth: 2.5,
+        left: -20, top: -10
+      });
+      const pan = new fabric.Rect({
+        width: 100, height: 6, fill: '#ffffff', stroke: '#0f172a', strokeWidth: 2.5, rx: 2, ry: 2,
+        left: -50, top: -16
+      });
+      const displayBox = new fabric.Rect({
+        width: 60, height: 18, fill: '#cbd5e1', stroke: '#0f172a', strokeWidth: 2,
+        left: -30, top: 3
+      });
+      const text = new fabric.Text('0.00', {
+        fontSize: 16, fill: '#0f172a', fontFamily: '"Share Tech Mono", monospace', fontWeight: 'bold',
+        left: 0, top: 12, originX: 'center', originY: 'center'
+      });
+      text.isDisplayValue = true;
+      
+      const group = new fabric.Group([base, panSupport, pan, displayBox, text], {
+        left: 400, top: 300, originX: 'center', originY: 'center'
+      });
+      group.isDigitalDisplay = true;
+      canvas.add(group);
+      canvas.setActiveObject(group);
+    }
+
+    let currentDigitalTarget = null;
+        function editDigitalValue() {
+      let targetObj = canvas.getActiveObject();
+      
+      // Auto-select if there's only one group on canvas that has a text object
+      if (!targetObj || targetObj.type !== 'group') {
+        const groupsWithText = canvas.getObjects().filter(o => o.type === 'group' && o.getObjects().some(child => child.type === 'text' || child.type === 'i-text'));
+        if (groupsWithText.length === 1) {
+          targetObj = groupsWithText[0];
+          canvas.setActiveObject(targetObj);
+          canvas.renderAll();
+        } else if (groupsWithText.length > 1) {
+          showToast("Có nhiều thiết bị. Vui lòng click chọn thiết bị bạn muốn sửa trên bản vẽ.");
+          return;
+        }
+      }
+
+      if (targetObj && targetObj.type === 'group') {
+        // Find text object to edit (prefer isDisplayValue, otherwise just the first text object)
+        const textObj = targetObj.getObjects().find(o => o.isDisplayValue) || targetObj.getObjects().find(o => o.type === 'text' || o.type === 'i-text');
+        
+        if (textObj) {
+          currentDigitalTarget = targetObj;
+          const currentVal = textObj.text || "";
+          document.getElementById('editDigitalInput').value = currentVal;
+          
+          const modal = document.getElementById('editDigitalModal');
+          modal.classList.remove('hidden');
+          modal.style.display = 'flex';
+          return;
+        }
+      }
+      
+      showToast("Vui lòng chọn Đồng hồ hoặc Cân điện tử trên bản vẽ để sửa số.");
+    }
+    
+    function closeEditDigital() {
+      const modal = document.getElementById('editDigitalModal');
+      modal.classList.add('hidden');
+      modal.style.display = 'none';
+      currentDigitalTarget = null;
+    }
+    
+        function confirmEditDigital() {
+      if (currentDigitalTarget) {
+        const val = document.getElementById('editDigitalInput').value;
+        if (val.trim() !== "") {
+          const textObj = currentDigitalTarget.getObjects().find(o => o.isDisplayValue) || currentDigitalTarget.getObjects().find(o => o.type === 'text' || o.type === 'i-text');
+          if (textObj) {
+            textObj.set('text', val.trim());
+            currentDigitalTarget.addWithUpdate();
+            canvas.requestRenderAll();
+          }
+        }
+      }
+      closeEditDigital();
+    }
+
+    
+            function switchTab(tabId) {
+      document.querySelectorAll('.tab-panel').forEach(el => {
+        el.classList.remove('flex');
+        el.classList.add('hidden');
+      });
+      document.querySelectorAll('.tab-btn').forEach(el => {
+        el.classList.remove('bg-slate-100', 'text-slate-800', 'border-slate-800');
+        el.classList.add('text-slate-400', 'hover:bg-slate-50', 'border-transparent');
+      });
+      const panel = document.getElementById('panel-' + tabId);
+      if (panel) {
+        panel.classList.remove('hidden');
+        panel.classList.add('flex');
+      }
+      const activeBtn = document.getElementById('tab-' + tabId);
+      if (activeBtn) {
+        activeBtn.classList.remove('text-slate-400', 'hover:bg-slate-50', 'border-transparent');
+        activeBtn.classList.add('bg-slate-100', 'text-slate-800', 'border-slate-800');
+      }
+    }
+
+    function setZoom(factor) {
+      let zoom = canvas.getZoom() * factor;
+      if (zoom > 5) zoom = 5;
+      if (zoom < 0.2) zoom = 0.2;
+      canvas.setZoom(zoom);
+    }
+
+            function clearCanvas() {
+      if (confirm("Bạn có chắc muốn xóa toàn bộ bảng vẽ?")) {
+        canvas.clear();
+        canvas.backgroundColor = '#FFFFFF';
+        canvas.requestRenderAll();
+        canvasGridLines = [];
+        const gridBtn = document.getElementById('grid-toggle-btn');
+        if (gridBtn) {
+            gridBtn.classList.remove('bg-blue-600', 'text-white');
+            gridBtn.classList.add('bg-blue-500/20', 'text-blue-100');
+        }
+      }
+    }
+
+    function toggleTextBold() {
+      let obj = canvas.getActiveObject();
+      if (obj && (obj.type === 'text' || obj.type === 'i-text')) {
+        obj.set('fontWeight', obj.fontWeight === 'bold' ? 'normal' : 'bold');
+        canvas.renderAll();
+      }
+    }
+
+    function toggleTextItalic() {
+      let obj = canvas.getActiveObject();
+      if (obj && (obj.type === 'text' || obj.type === 'i-text')) {
+        obj.set('fontStyle', obj.fontStyle === 'italic' ? 'normal' : 'italic');
+        canvas.renderAll();
+      }
+    }
+
+    function addText() {
+      const text = new fabric.IText('Nhập văn bản', {
+        left: 400, top: 300, fontFamily: 'sans-serif', fill: '#0f172a', fontSize: 24, originX: 'center', originY: 'center'
+      });
+      canvas.add(text);
+      canvas.setActiveObject(text);
+    }
+    
+    function addCart() {
+      const body = new fabric.Rect({ width: 80, height: 40, fill: '#cbd5e1', stroke: '#475569', strokeWidth: 2, rx: 5, ry: 5, left: -40, top: -30 });
+      const wheel1 = new fabric.Circle({ radius: 10, fill: '#334155', left: -30, top: 0 });
+      const wheel2 = new fabric.Circle({ radius: 10, fill: '#334155', left: 10, top: 0 });
+      const hook = new fabric.Path('M 40 -10 L 50 -10 A 5 5 0 1 1 50 0', { fill: 'transparent', stroke: '#475569', strokeWidth: 3, strokeLineCap: 'round' });
+      const group = new fabric.Group([body, wheel1, wheel2, hook], { left: 400, top: 300, originX: 'center', originY: 'center' });
+      canvas.add(group);
+      canvas.setActiveObject(group);
+    }
+
+    
+    // ===== THERMODYNAMICS OBJECTS =====
+    
+    function addThermometer() {
+      const x = (canvas.width || 800) / 2;
+      const y = (canvas.height || 600) / 2;
+      const w = 12;
+      const h = 120;
+      
+      const glassBody = new fabric.Rect({
+        left: 0, top: -h/2, width: w, height: h,
+        fill: '#f8fafc', stroke: '#94a3b8', strokeWidth: 1.5,
+        originX: 'center', originY: 'center', rx: w/2, ry: w/2
+      });
+      
+      const bulb = new fabric.Circle({
+        left: 0, top: h/2, radius: 12,
+        fill: '#ef4444', stroke: '#94a3b8', strokeWidth: 1.5,
+        originX: 'center', originY: 'center'
+      });
+      
+      const liquidBody = new fabric.Rect({
+        left: 0, top: h/4, width: w/2, height: h/2 + 5,
+        fill: '#ef4444', stroke: 'transparent',
+        originX: 'center', originY: 'center'
+      });
+      
+      const marks = [];
+      for (let i = -h/2 + 10; i < h/2 - 10; i += 10) {
+        marks.push(new fabric.Line([-w/2, i, 0, i], {
+          stroke: '#64748b', strokeWidth: 1, originX: 'center', originY: 'center'
+        }));
+      }
+      
+      const thermometer = new fabric.Group([glassBody, bulb, liquidBody, ...marks], {
+        left: x, top: y, originX: 'center', originY: 'center'
+      });
+      
+      canvas.add(thermometer);
+      canvas.setActiveObject(thermometer);
+      canvas.renderAll();
+    }
+    
+    function addAlcoholLamp() {
+      const x = (canvas.width || 800) / 2;
+      const y = (canvas.height || 600) / 2;
+      
+      const body = new fabric.Path('M -40 30 Q -40 -10 -15 -20 L 15 -20 Q 40 -10 40 30 Z', {
+        fill: '#e2e8f0', stroke: '#64748b', strokeWidth: 2,
+        originX: 'center', originY: 'center'
+      });
+      
+      const cap = new fabric.Rect({
+        left: 0, top: -25, width: 16, height: 10,
+        fill: '#94a3b8', stroke: '#475569', strokeWidth: 1.5,
+        originX: 'center', originY: 'center'
+      });
+      
+      const wick = new fabric.Rect({
+        left: 0, top: -33, width: 4, height: 6,
+        fill: '#475569',
+        originX: 'center', originY: 'center'
+      });
+      
+      const flame = new fabric.Path('M 0 -35 Q 10 -40 10 -50 Q 10 -65 0 -75 Q -10 -65 -10 -50 Q -10 -40 0 -35 Z', {
+        fill: '#f97316', stroke: '#ea580c', strokeWidth: 1,
+        originX: 'center', originY: 'center'
+      });
+      
+      const innerFlame = new fabric.Path('M 0 -35 Q 5 -40 5 -47 Q 5 -55 0 -60 Q -5 -55 -5 -47 Q -5 -40 0 -35 Z', {
+        fill: '#fef08a', stroke: 'transparent',
+        originX: 'center', originY: 'center'
+      });
+      
+      const lamp = new fabric.Group([body, cap, wick, flame, innerFlame], {
+        left: x, top: y, originX: 'center', originY: 'center'
+      });
+      
+      canvas.add(lamp);
+      canvas.setActiveObject(lamp);
+      canvas.renderAll();
+    }
+    
+    function addCalorimeter() {
+      const x = (canvas.width || 800) / 2;
+      const y = (canvas.height || 600) / 2;
+      
+      const outerBox = new fabric.Rect({
+        left: 0, top: 0, width: 120, height: 140,
+        fill: '#f1f5f9', stroke: '#64748b', strokeWidth: 2,
+        originX: 'center', originY: 'center', rx: 4, ry: 4
+      });
+      
+      const innerBox = new fabric.Rect({
+        left: 0, top: 5, width: 90, height: 120,
+        fill: '#ffffff', stroke: '#94a3b8', strokeWidth: 1.5,
+        originX: 'center', originY: 'center', rx: 2, ry: 2
+      });
+      
+      const lid = new fabric.Rect({
+        left: 0, top: -70, width: 130, height: 8,
+        fill: '#cbd5e1', stroke: '#64748b', strokeWidth: 2,
+        originX: 'center', originY: 'center'
+      });
+      
+      // Thermometer
+      const tGlass = new fabric.Rect({
+        left: -20, top: -40, width: 8, height: 100,
+        fill: '#f8fafc', stroke: '#94a3b8', strokeWidth: 1,
+        originX: 'center', originY: 'center', rx: 4, ry: 4
+      });
+      const tBulb = new fabric.Circle({
+        left: -20, top: 10, radius: 8,
+        fill: '#ef4444', stroke: '#94a3b8', strokeWidth: 1,
+        originX: 'center', originY: 'center'
+      });
+      
+      // Stirrer
+      const sRod = new fabric.Rect({
+        left: 20, top: -30, width: 4, height: 110,
+        fill: '#94a3b8', stroke: '#64748b', strokeWidth: 1,
+        originX: 'center', originY: 'center'
+      });
+      const sRing = new fabric.Circle({
+        left: 20, top: 25, radius: 12,
+        fill: 'transparent', stroke: '#64748b', strokeWidth: 2,
+        originX: 'center', originY: 'center'
+      });
+      const sHandle = new fabric.Rect({
+        left: 20, top: -85, width: 16, height: 6,
+        fill: '#64748b',
+        originX: 'center', originY: 'center'
+      });
+      
+      const cal = new fabric.Group([outerBox, innerBox, tGlass, tBulb, sRod, sRing, sHandle, lid], {
+        left: x, top: y, originX: 'center', originY: 'center'
+      });
+      
+      canvas.add(cal);
+      canvas.setActiveObject(cal);
+      canvas.renderAll();
+    }
+    
+    function addTestTube() {
+      const x = (canvas.width || 800) / 2;
+      const y = (canvas.height || 600) / 2;
+      
+      const w = 24;
+      const h = 120;
+      
+      const path = `M ${-w/2} ${-h/2} L ${-w/2} ${h/2 - w/2} A ${w/2} ${w/2} 0 0 0 ${w/2} ${h/2 - w/2} L ${w/2} ${-h/2}`;
+      
+      const tube = new fabric.Path(path, {
+        fill: 'rgba(248, 250, 252, 0.5)', stroke: '#64748b', strokeWidth: 2,
+        left: x, top: y, originX: 'center', originY: 'center'
+      });
+      
+      canvas.add(tube);
+      canvas.setActiveObject(tube);
+      canvas.renderAll();
+    }
+    
+    function addPistonCylinder() {
+      const x = (canvas.width || 800) / 2;
+      const y = (canvas.height || 600) / 2;
+      
+      const w = 150;
+      const h = 60;
+      
+      const cylPath = `M ${-w/2} ${-h/2} L ${w/2} ${-h/2} L ${w/2} ${h/2} L ${-w/2} ${h/2}`;
+      const cyl = new fabric.Path(cylPath, {
+        fill: 'transparent', stroke: '#475569', strokeWidth: 3,
+        originX: 'center', originY: 'center'
+      });
+      
+      const pistonW = 20;
+      const piston = new fabric.Rect({
+        left: 0, top: 0, width: pistonW, height: h - 6,
+        fill: '#94a3b8', stroke: '#475569', strokeWidth: 2,
+        originX: 'center', originY: 'center'
+      });
+      
+      const rod = new fabric.Rect({
+        left: -w/2 - 20, top: 0, width: w/2 + 20, height: 6,
+        fill: '#cbd5e1', stroke: '#475569', strokeWidth: 2,
+        originX: 'center', originY: 'center'
+      });
+      
+      const pistonHandle = new fabric.Rect({
+        left: -w/2 - 20, top: 0, width: 8, height: 30,
+        fill: '#475569',
+        originX: 'center', originY: 'center'
+      });
+      
+      const sys = new fabric.Group([cyl, rod, pistonHandle, piston], {
+        left: x, top: y, originX: 'center', originY: 'center'
+      });
+      
+      canvas.add(sys);
+      canvas.setActiveObject(sys);
+      canvas.renderAll();
+    }
+    
+    function addPressureGauge() {
+      const x = (canvas.width || 800) / 2;
+      const y = (canvas.height || 600) / 2;
+      
+      const r = 30;
+      const outer = new fabric.Circle({
+        left: 0, top: 0, radius: r,
+        fill: '#ffffff', stroke: '#64748b', strokeWidth: 3,
+        originX: 'center', originY: 'center'
+      });
+      
+      const inner = new fabric.Circle({
+        left: 0, top: 0, radius: r - 4,
+        fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1,
+        originX: 'center', originY: 'center'
+      });
+      
+      const center = new fabric.Circle({
+        left: 0, top: 0, radius: 3,
+        fill: '#1e293b',
+        originX: 'center', originY: 'center'
+      });
+      
+      const needle = new fabric.Line([0, 0, 15, -15], {
+        stroke: '#ef4444', strokeWidth: 2,
+        originX: 'left', originY: 'bottom', left: 0, top: 0
+      });
+      
+      const marks = [];
+      for (let angle = -45; angle <= 225; angle += 30) {
+        const rad = angle * Math.PI / 180;
+        const x1 = (r - 4) * Math.cos(rad);
+        const y1 = (r - 4) * Math.sin(rad);
+        const x2 = (r - 10) * Math.cos(rad);
+        const y2 = (r - 10) * Math.sin(rad);
+        marks.push(new fabric.Line([x1, y1, x2, y2], {
+          stroke: '#64748b', strokeWidth: 1, originX: 'center', originY: 'center'
+        }));
+      }
+      
+      const mount = new fabric.Rect({
+        left: 0, top: r + 5, width: 10, height: 10,
+        fill: '#94a3b8', stroke: '#475569', strokeWidth: 2,
+        originX: 'center', originY: 'center'
+      });
+      
+      const gauge = new fabric.Group([mount, outer, inner, ...marks, center, needle], {
+        left: x, top: y, originX: 'center', originY: 'center'
+      });
+      
+      canvas.add(gauge);
+      canvas.setActiveObject(gauge);
+      canvas.renderAll();
+    }
+
+    function addContainer() {
+      const beaker = new fabric.Path('M -30 -40 L -30 40 A 10 10 0 0 0 -20 50 L 20 50 A 10 10 0 0 0 30 40 L 30 -40', {
+        fill: 'transparent', stroke: '#0f172a', strokeWidth: 3
+      });
+      
+      const group = new fabric.Group([beaker], { left: 400, top: 300, originX: 'center', originY: 'center' });
+      canvas.add(group);
+      canvas.setActiveObject(group);
+    }
+
+    function addCurve() {
+      const curve = new fabric.Path('M -50 0 Q 0 -50 50 0', {
+        fill: 'transparent', stroke: '#0f172a', strokeWidth: 3, strokeLineCap: 'round'
+      });
+      curve.set({ left: 400, top: 300, originX: 'center', originY: 'center' });
+      canvas.add(curve);
+      canvas.setActiveObject(curve);
+    }
+    
+    function addGround() {
+      const line = new fabric.Line([-100, 0, 100, 0], { stroke: '#0f172a', strokeWidth: 3 });
+      const marks = [];
+      for(let i = -90; i <= 90; i += 10) {
+        marks.push(new fabric.Line([i, 0, i-5, 10], { stroke: '#0f172a', strokeWidth: 2 }));
+      }
+      const group = new fabric.Group([line, ...marks], { left: 400, top: 300, originX: 'center', originY: 'center' });
+      canvas.add(group);
+      canvas.setActiveObject(group);
+    }
+
+        function addInclinedPlane() {
+      const plane = new fabric.Polygon([
+        {x: 0, y: 0},
+        {x: 0, y: 150},
+        {x: 150, y: 150}
+      ], { 
+        fill: '#cbd5e1', stroke: '#475569', strokeWidth: 2, 
+        left: 400, top: 300, originX: 'center', originY: 'center',
+        strokeLineJoin: 'round',
+        strokeUniform: true
+      });
+      canvas.add(plane);
+      canvas.setActiveObject(plane);
+    }
+
+    function addPivot() {
+      const circle = new fabric.Circle({ radius: 6, fill: '#cbd5e1', stroke: '#0f172a', strokeWidth: 2, left: -6, top: -6 });
+      const group = new fabric.Group([circle], { left: 400, top: 300, originX: 'center', originY: 'center' });
+      canvas.add(group);
+      canvas.setActiveObject(group);
+    }
+
+        function addPulley() {
+      const ceiling = new fabric.Rect({ left: -60, top: -50, width: 120, height: 10, fill: '#cbd5e1', stroke: '#475569', strokeWidth: 2 });
+      const mount = new fabric.Rect({ left: -8, top: -40, width: 16, height: 45, fill: '#e2e8f0', stroke: '#475569', strokeWidth: 2 });
+      const wheel = new fabric.Circle({ radius: 30, fill: '#94a3b8', stroke: '#475569', strokeWidth: 3, left: -30, top: -30 });
+      const dot = new fabric.Circle({ radius: 4, fill: '#0f172a', left: -4, top: -4 });
+      
+      const group = new fabric.Group([wheel, mount, dot, ceiling], { left: 400, top: 300, originX: 'center', originY: 'center' });
+      canvas.add(group);
+      canvas.setActiveObject(group);
+    }
+
+        function addSpring() {
+      const w = 15;
+      const h = 5;
+      const dy = 8;
+      const startY = -40;
+      const numCoils = 12;
+      
+      const parts = [];
+      // Top wire
+      parts.push(new fabric.Path('M 0 -60 L 0 -45', { fill: 'transparent', stroke: '#94a3b8', strokeWidth: 3, strokeLineCap: 'round' }));
+      // Connect to first coil
+      parts.push(new fabric.Path(`M 0 -45 Q 0 -40 ${-w} ${startY}`, { fill: 'transparent', stroke: '#cbd5e1', strokeWidth: 4, strokeLineCap: 'round' }));
+      
+      // Back halves
+      for(let i=0; i<numCoils; i++) {
+        const cy = startY + i * dy;
+        parts.push(new fabric.Path(`M ${w} ${cy+dy/2} C ${w} ${cy+dy/2-h} ${-w} ${cy+dy-h} ${-w} ${cy+dy}`, { fill: 'transparent', stroke: '#64748b', strokeWidth: 3, strokeLineCap: 'round' }));
+      }
+      
+      // Front halves
+      for(let i=0; i<numCoils; i++) {
+        const cy = startY + i * dy;
+        parts.push(new fabric.Path(`M ${-w} ${cy} C ${-w} ${cy+h} ${w} ${cy+dy/2+h} ${w} ${cy+dy/2}`, { fill: 'transparent', stroke: '#e2e8f0', strokeWidth: 4, strokeLineCap: 'round' }));
+        parts.push(new fabric.Path(`M ${-w} ${cy} C ${-w} ${cy+h} ${w} ${cy+dy/2+h} ${w} ${cy+dy/2}`, { fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1.5, strokeLineCap: 'round' })); // shading
+      }
+      
+      const endY = startY + numCoils * dy;
+      // Connect to bottom wire
+      parts.push(new fabric.Path(`M ${-w} ${endY} Q 0 ${endY+5} 0 ${endY+10}`, { fill: 'transparent', stroke: '#cbd5e1', strokeWidth: 4, strokeLineCap: 'round' }));
+      parts.push(new fabric.Path(`M 0 ${endY+10} L 0 ${endY+25}`, { fill: 'transparent', stroke: '#94a3b8', strokeWidth: 3, strokeLineCap: 'round' }));
+      
+      const spring = new fabric.Group(parts, { left: 400, top: 300, originX: 'center', originY: 'center' });
+      canvas.add(spring);
+      canvas.setActiveObject(spring);
+    }
+
+    function addString() {
+      const string = new fabric.Line([0, 0, 0, 100], { stroke: '#0f172a', strokeWidth: 2, left: 400, top: 300, originX: 'center', originY: 'center' });
+      canvas.add(string);
+      canvas.setActiveObject(string);
+    }
+
+
+    
+            
+    function addFunctionTemplate(type, expr) {
+        addGraphFunction();
+        const rows = document.querySelectorAll('#graph-functions-list > div');
+        if (rows.length > 0) {
+            const lastRow = rows[rows.length - 1];
+            lastRow.querySelector('.func-type').value = type;
+            lastRow.querySelector('.func-input').value = expr;
+        }
+    }
+
+    
+    function addGraphPoint() {
+      const container = document.getElementById('graph-points-list');
+      if (!container) return;
+      const row = document.createElement('div');
+      row.className = 'flex gap-2 items-center flex-wrap border border-slate-200 p-2 rounded bg-white';
+      row.innerHTML = `
+        <span class="text-xs text-slate-600 font-medium">x:</span>
+        <input type="number" class="point-x border border-slate-300 rounded p-1 text-sm w-16 focus:outline-blue-500" step="any" value="2">
+        <span class="text-xs text-slate-600 font-medium">y:</span>
+        <input type="number" class="point-y border border-slate-300 rounded p-1 text-sm w-16 focus:outline-blue-500" step="any" value="3">
+        <span class="text-xs text-slate-600 font-medium">Tên:</span>
+        <input type="text" class="point-name border border-slate-300 rounded p-1 text-sm w-16 focus:outline-blue-500" placeholder="e.g. M">
+        <label class="flex items-center gap-1 text-xs text-slate-600 cursor-pointer ml-2 border-l border-slate-200 pl-3">
+          <input type="checkbox" class="point-show-dot w-3 h-3" checked> Hiện chấm
+        </label>
+        <button type="button" onclick="this.closest('div.border').remove()" class="text-slate-400 hover:text-red-500 ml-auto" title="Xóa điểm này">
+          <span class="material-symbols-outlined text-[18px]">delete</span>
+        </button>
+      `;
+      container.appendChild(row);
+    }
+
+    function addGraphFunction() {
+      const container = document.getElementById('graph-functions-list');
+      if (!container) return;
+      const row = document.createElement('div');
+      row.className = 'flex flex-col gap-2 mb-2 border border-slate-200 p-2 rounded bg-slate-50';
+      row.innerHTML = `
+        <div class="flex gap-2 items-center flex-wrap">
+            <select class="func-type border border-slate-300 rounded p-1 text-sm outline-none">
+              <option value="y">y =</option>
+              <option value="x">x =</option>
+            </select>
+            <div class="flex-1 min-w-[120px] flex items-center border border-slate-300 rounded focus-within:border-blue-500 bg-white">
+                <input type="text" class="func-input w-full border-none bg-transparent px-2 py-1 text-sm outline-none" placeholder="e.g. sin(x+π) hoặc x^2">
+                <button type="button" onclick="this.previousElementSibling.value += 'π'; this.previousElementSibling.focus();" class="px-2 text-slate-500 hover:text-slate-800 font-serif font-bold border-l border-slate-200" title="Chèn số Pi">π</button>
+            </div>
+            
+            <div class="flex items-center gap-1">
+                <label class="text-xs text-slate-500">Màu:</label>
+                <input type="color" class="func-color w-6 h-6 rounded cursor-pointer border-0 p-0" value="#ef4444">
+            </div>
+            <div class="flex items-center gap-1">
+                <label class="text-xs text-slate-500">Nét:</label>
+                <input type="number" class="func-weight border border-slate-300 rounded p-1 text-xs w-12 outline-none" value="2" min="1">
+            </div>
+            <div class="flex items-center gap-1">
+                <label class="text-xs text-slate-500">Kiểu:</label>
+                <select class="func-dash border border-slate-300 rounded p-1 text-xs outline-none">
+                    <option value="solid">Liền</option>
+                    <option value="dashed">Đứt</option>
+                </select>
+            </div>
+            <button type="button" onclick="this.closest('div.border').remove()" class="text-red-500 hover:text-red-700 ml-auto" title="Xóa hàm số này">
+              <span class="material-symbols-outlined text-[18px]">delete</span>
+            </button>
+        </div>
+        <div class="flex items-center gap-2 text-xs text-slate-500 bg-white p-1.5 rounded border border-slate-100">
+            <span class="font-medium text-slate-600">Phạm vi vẽ:</span>
+            <span>Từ</span>
+            <input type="number" class="func-domain-min border border-slate-300 rounded p-1 w-16 outline-none" placeholder="Min" step="any">
+            <span>đến</span>
+            <input type="number" class="func-domain-max border border-slate-300 rounded p-1 w-16 outline-none" placeholder="Max" step="any">
+            <span class="text-[10px] text-slate-400 italic">(Để trống nếu vẽ trên toàn bộ hệ trục)</span>
+        </div>
+      `;
+      container.appendChild(row);
+    }
+    
+                    function drawGraph() {
+      const rows = document.querySelectorAll('#graph-functions-list > div');
+      
+      const xMin = parseFloat(document.getElementById('graph-xmin').value);
+      const xMax = parseFloat(document.getElementById('graph-xmax').value);
+      const xStep = parseFloat(document.getElementById('graph-xstep').value);
+      const yMin = parseFloat(document.getElementById('graph-ymin').value);
+      const yMax = parseFloat(document.getElementById('graph-ymax').value);
+      const yStep = parseFloat(document.getElementById('graph-ystep').value);
+      
+      if (isNaN(xMin) || isNaN(xMax) || isNaN(xStep) || isNaN(yMin) || isNaN(yMax) || isNaN(yStep)) {
+          showToast("Vui lòng nhập số hợp lệ.");
+          return;
+      }
+      if (xMax <= xMin || yMax <= yMin || xStep <= 0 || yStep <= 0) {
+          showToast("Max phải lớn hơn Min, và Step phải lớn hơn 0.");
+          return;
+      }
+
+      const showGrid = document.getElementById('graph-grid').checked;
+      const xLabelText = document.getElementById('graph-xlabel').value || 'x';
+      const yLabelText = document.getElementById('graph-ylabel').value || 'y';
+      
+      const scaleX = parseFloat(document.getElementById('graph-scale-x')?.value) || 40;
+      const scaleY = parseFloat(document.getElementById('graph-scale-y')?.value) || 40;
+      const width = (xMax - xMin) * scaleX;
+      const height = (yMax - yMin) * scaleY;
+      
+      if (isNaN(width) || width <= 0 || !isFinite(width) || isNaN(height) || height <= 0 || !isFinite(height)) {
+          showToast("Lỗi tính toán kích thước.");
+          return;
+      }
+      
+      const originX = -xMin * scaleX;
+      const originY = yMax * scaleY;
+      
+      const objs = [];
+      const anchor = new fabric.Rect({ left: 0, top: 0, width: width, height: height, fill: 'transparent', stroke: 'transparent' });
+      objs.push(anchor);
+      
+      if (showGrid) {
+        for (let x = Math.ceil(xMin/xStep)*xStep; x <= xMax; x += xStep) {
+          const px = originX + x * scaleX;
+          if (isFinite(px)) objs.push(new fabric.Line([px, 0, px, height], { stroke: '#64748b', strokeWidth: 2, strokeDashArray: [4, 4] }));
+        }
+        for (let y = Math.ceil(yMin/yStep)*yStep; y <= yMax; y += yStep) {
+          const py = originY - y * scaleY;
+          if (isFinite(py)) objs.push(new fabric.Line([0, py, width, py], { stroke: '#64748b', strokeWidth: 2, strokeDashArray: [4, 4] }));
+        }
+      }
+      
+      const axisExt = 25;
+      const arrowSize = 10;
+      
+      const xDrawMinStr = document.getElementById('graph-axis-x-draw-min')?.value;
+      const xDrawMaxStr = document.getElementById('graph-axis-x-draw-max')?.value;
+      const yDrawMinStr = document.getElementById('graph-axis-y-draw-min')?.value;
+      const yDrawMaxStr = document.getElementById('graph-axis-y-draw-max')?.value;
+      
+      let endX = width;
+      let endY = 0;
+      
+      if (yMin <= 0 && yMax >= 0) {
+        endX = width + axisExt;
+        let startX = -15;
+        if (xDrawMinStr && !isNaN(parseFloat(xDrawMinStr))) startX = originX + parseFloat(xDrawMinStr) * scaleX;
+        if (xDrawMaxStr && !isNaN(parseFloat(xDrawMaxStr))) endX = originX + parseFloat(xDrawMaxStr) * scaleX;
+        
+        objs.push(new fabric.Line([startX, originY, endX, originY], { stroke: '#000000', strokeWidth: 2 }));
+        objs.push(new fabric.Polygon([
+            {x: endX - arrowSize, y: originY - arrowSize/2.5},
+            {x: endX + 3, y: originY},
+            {x: endX - arrowSize, y: originY + arrowSize/2.5}
+        ], { fill: '#000000', stroke: '#000000', strokeWidth: 1, strokeLineJoin: 'miter' }));
+      }
+      
+      if (xMin <= 0 && xMax >= 0) {
+        endY = -axisExt;
+        let startY = height + 15;
+        if (yDrawMinStr && !isNaN(parseFloat(yDrawMinStr))) startY = originY - parseFloat(yDrawMinStr) * scaleY;
+        if (yDrawMaxStr && !isNaN(parseFloat(yDrawMaxStr))) endY = originY - parseFloat(yDrawMaxStr) * scaleY;
+        
+        objs.push(new fabric.Line([originX, startY, originX, endY], { stroke: '#000000', strokeWidth: 2 }));
+        objs.push(new fabric.Polygon([
+            {x: originX - arrowSize/2.5, y: endY + arrowSize},
+            {x: originX, y: endY - 3},
+            {x: originX + arrowSize/2.5, y: endY + arrowSize}
+        ], { fill: '#000000', stroke: '#000000', strokeWidth: 1, strokeLineJoin: 'miter' }));
+      }
+      
+      const formatNum = (num) => { 
+         let s = parseFloat(num.toPrecision(10)).toString(); 
+         return s.replace('.', ',');
+      };
+
+      for (let x = Math.ceil(xMin/xStep)*xStep; x <= xMax; x += xStep) {
+        if (Math.abs(x) < 1e-5) continue;
+        const px = originX + x * scaleX;
+        const py = (yMin <= 0 && yMax >= 0) ? originY : height;
+        if (isFinite(px) && isFinite(py)) {
+            objs.push(new fabric.Line([px, py-4, px, py+4], { stroke: '#000000', strokeWidth: 2 }));
+            objs.push(new fabric.Text(formatNum(x), { 
+                left: px, top: py + 8, fontSize: 14, fill: '#000000', fontFamily: 'Times New Roman', originX: 'center', originY: 'top' 
+            }));
+        }
+      }
+      
+      for (let y = Math.ceil(yMin/yStep)*yStep; y <= yMax; y += yStep) {
+        if (Math.abs(y) < 1e-5) continue;
+        const py = originY - y * scaleY;
+        const px = (xMin <= 0 && xMax >= 0) ? originX : 0;
+        if (isFinite(px) && isFinite(py)) {
+            objs.push(new fabric.Line([px-4, py, px+4, py], { stroke: '#000000', strokeWidth: 2 }));
+            objs.push(new fabric.Text(formatNum(y), { 
+                left: px - 8, top: py, fontSize: 14, fill: '#000000', fontFamily: 'Times New Roman', originX: 'right', originY: 'center' 
+            }));
+        }
+      }
+
+      rows.forEach(row => {
+        let type = row.querySelector('.func-type').value;
+        let expr = row.querySelector('.func-input').value.trim();
+        let color = row.querySelector('.func-color').value;
+        let weight = parseFloat(row.querySelector('.func-weight').value) || 2;
+        let dash = row.querySelector('.func-dash').value;
+        
+        if (!expr) return;
+        let processedExpr = expr.toLowerCase();
+        if (type === 'y' && processedExpr.startsWith('y=')) processedExpr = processedExpr.substring(2);
+        else if (type === 'y' && processedExpr.startsWith('y =')) processedExpr = processedExpr.substring(3);
+        else if (type === 'x' && processedExpr.startsWith('x=')) processedExpr = processedExpr.substring(2);
+        else if (type === 'x' && processedExpr.startsWith('x =')) processedExpr = processedExpr.substring(3);
+        
+        if (processedExpr.startsWith('f(x)=')) processedExpr = processedExpr.substring(5);
+        else if (processedExpr.startsWith('f(x) =')) processedExpr = processedExpr.substring(6);
+        
+        processedExpr = processedExpr.replace(/\*\*/g, '^');
+        processedExpr = processedExpr.replace(/π/g, 'pi');
+        
+        const dashArray = dash === 'dashed' ? [weight * 3, weight * 3] : null;
+        
+        let pDataStr = "";
+        let isDrawing = false;
+        let prevPx = null;
+        let prevPy = null;
+        let prevVal = null;
+        
+        try {
+            const compiled = math.compile(processedExpr);
+            
+            if (type === 'y') {
+                let startPx = 0;
+                let endPx = width;
+                
+                for (let px = startPx; px <= endPx; px += 1) {
+                  const x = (px - originX) / scaleX;
+                  const y = compiled.evaluate({ x: x, e: Math.E, pi: Math.PI });
+                  
+                  if (isFinite(y) && !isNaN(y)) {
+                    let py = originY - y * scaleY;
+                    
+                    let isAsymptote = false;
+                    if (prevVal !== null && Math.sign(y) !== Math.sign(prevVal) && Math.abs(py - prevPy) > height) {
+                        isAsymptote = true;
+                    }
+                    
+                    if (isAsymptote) {
+                        if (isDrawing) {
+                           let intersectY = prevPy < py ? -height : height*2; 
+                           let intersectX = prevPx + (px - prevPx) * (intersectY - prevPy) / (py - prevPy);
+                           pDataStr += " L " + intersectX.toFixed(2) + " " + intersectY.toFixed(2);
+                        }
+                        isDrawing = false;
+                    }
+                    
+                    if (py >= -height && py <= height*2) {
+                      if (!isDrawing) {
+                         if (prevPx !== null && prevPy !== null && !isAsymptote) {
+                            let intersectY = prevPy < -height ? -height : height*2;
+                            let intersectX = prevPx + (px - prevPx) * (intersectY - prevPy) / (py - prevPy);
+                            pDataStr += " M " + intersectX.toFixed(2) + " " + intersectY.toFixed(2) + " L " + px.toFixed(2) + " " + py.toFixed(2);
+                         } else {
+                            pDataStr += " M " + px.toFixed(2) + " " + py.toFixed(2);
+                         }
+                         isDrawing = true;
+                      } else {
+                         pDataStr += " L " + px.toFixed(2) + " " + py.toFixed(2);
+                      }
+                    } else {
+                      if (isDrawing) {
+                         let intersectY = py < -height ? -height : height*2;
+                         let intersectX = prevPx + (px - prevPx) * (intersectY - prevPy) / (py - prevPy);
+                         pDataStr += " L " + intersectX.toFixed(2) + " " + intersectY.toFixed(2);
+                         isDrawing = false;
+                      }
+                    }
+                    prevPx = px;
+                    prevPy = py;
+                    prevVal = y;
+                  } else {
+                    isDrawing = false;
+                    prevPx = null;
+                    prevPy = null;
+                    prevVal = null;
+                  }
+                }
+            } else {
+                let startPy = 0;
+                let endPy = height;
+                
+                for (let py = startPy; py <= endPy; py += 1) {
+                  const y = (originY - py) / scaleY;
+                  const x = compiled.evaluate({ y: y, e: Math.E, pi: Math.PI, x: y }); // map x to y for x=a eq
+                  
+                  if (isFinite(x) && !isNaN(x)) {
+                    let px = originX + x * scaleX;
+                    
+                    let isAsymptote = false;
+                    if (prevVal !== null && Math.sign(x) !== Math.sign(prevVal) && Math.abs(px - prevPx) > width) {
+                        isAsymptote = true;
+                    }
+                    
+                    if (isAsymptote) {
+                        if (isDrawing) {
+                           let intersectX = prevPx < px ? -width : width*2;
+                           let intersectY = prevPy + (py - prevPy) * (intersectX - prevPx) / (px - prevPx);
+                           pDataStr += " L " + intersectX.toFixed(2) + " " + intersectY.toFixed(2);
+                        }
+                        isDrawing = false;
+                    }
+                    
+                    if (px >= -width && px <= width*2) {
+                      if (!isDrawing) {
+                         if (prevPx !== null && prevPy !== null && !isAsymptote) {
+                            let intersectX = prevPx < -width ? -width : width*2;
+                            let intersectY = prevPy + (py - prevPy) * (intersectX - prevPx) / (px - prevPx);
+                            pDataStr += " M " + intersectX.toFixed(2) + " " + intersectY.toFixed(2) + " L " + px.toFixed(2) + " " + py.toFixed(2);
+                         } else {
+                            pDataStr += " M " + px.toFixed(2) + " " + py.toFixed(2);
+                         }
+                         isDrawing = true;
+                      } else {
+                         pDataStr += " L " + px.toFixed(2) + " " + py.toFixed(2);
+                      }
+                    } else {
+                      if (isDrawing) {
+                         let intersectX = px < -width ? -width : width*2;
+                         let intersectY = prevPy + (py - prevPy) * (intersectX - prevPx) / (px - prevPx);
+                         pDataStr += " L " + intersectX.toFixed(2) + " " + intersectY.toFixed(2);
+                         isDrawing = false;
+                      }
+                    }
+                    prevPx = px;
+                    prevPy = py;
+                    prevVal = x;
+                  } else {
+                    isDrawing = false;
+                    prevPx = null;
+                    prevPy = null;
+                    prevVal = null;
+                  }
+                }
+            }
+            
+            if (pDataStr && pDataStr.includes('L')) {
+              objs.push(new fabric.Path(pDataStr.trim(), { fill: 'transparent', stroke: color, strokeWidth: weight, strokeDashArray: dashArray, strokeLineJoin: 'round', objectCaching: false }));
+            }
+        } catch(e) {
+            console.error(e);
+        }
+      });
+      
+      const pointRows = document.querySelectorAll('#graph-points-list > div');
+      pointRows.forEach(row => {
+          const pxVal = parseFloat(row.querySelector('.point-x').value);
+          const pyVal = parseFloat(row.querySelector('.point-y').value);
+          const pName = row.querySelector('.point-name').value;
+          
+          if (!isNaN(pxVal) && !isNaN(pyVal)) {
+              const canvasX = originX + pxVal * scaleX;
+              const canvasY = originY - pyVal * scaleY;
+              
+              if (isFinite(canvasX) && isFinite(canvasY)) {
+                  objs.push(new fabric.Line([canvasX, canvasY, canvasX, originY], { stroke: '#000000', strokeWidth: 1.5, strokeDashArray: [4, 4] }));
+                  objs.push(new fabric.Line([canvasX, canvasY, originX, canvasY], { stroke: '#000000', strokeWidth: 1.5, strokeDashArray: [4, 4] }));
+                  
+                  const showDotCheckbox = row.querySelector('.point-show-dot');
+                  const showDot = showDotCheckbox ? showDotCheckbox.checked : true;
+                  if (showDot) {
+                      objs.push(new fabric.Circle({ left: canvasX, top: canvasY, radius: 4, fill: '#000000', originX: 'center', originY: 'center' }));
+                  }
+                  
+                  if (pName) {
+                      objs.push(new fabric.Text(pName, { left: canvasX + 6, top: canvasY - 6, fontSize: 16, fill: '#000000', fontStyle: 'italic', fontFamily: 'Times New Roman', originX: 'left', originY: 'bottom' }));
+                  }
+              }
+          }
+      });
+      
+      if (objs.length > 0) {
+        try {
+            const subGroup = new fabric.Group([...objs], {
+              objectCaching: false,
+              lockMovementX: true,
+              lockMovementY: true,
+              lockRotation: true,
+              lockScalingX: true,
+              lockScalingY: true,
+              hasControls: false
+            });
+            
+            const groupObjs = [subGroup];
+            
+            if (yMin <= 0 && yMax >= 0) {
+                const xLbl = new fabric.Text(xLabelText, { 
+                    left: endX + 10, 
+                    top: originY, 
+                    fontSize: 16, fill: '#000000', fontStyle: 'italic', fontFamily: 'Times New Roman', originX: 'left', originY: 'center' 
+                });
+                groupObjs.push(xLbl);
+            }
+            
+            if (xMin <= 0 && xMax >= 0) {
+                const yLbl = new fabric.Text(yLabelText, { 
+                    left: originX, 
+                    top: endY - 10, 
+                    fontSize: 16, fill: '#000000', fontStyle: 'italic', fontFamily: 'Times New Roman', originX: 'center', originY: 'bottom' 
+                });
+                groupObjs.push(yLbl);
+                
+                if (yMin <= 0 && yMax >= 0) { 
+                     const oLbl = new fabric.Text('O', { 
+                        left: originX - 6, 
+                        top: originY + 6, 
+                        fontSize: 16, fill: '#000000', fontStyle: 'italic', fontFamily: 'Times New Roman', originX: 'right', originY: 'top' 
+                     });
+                     groupObjs.push(oLbl);
+                }
+            }
+            
+            const graphGroup = new fabric.Group(groupObjs, {
+              left: 400, top: 300, originX: 'center', originY: 'center', objectCaching: false
+            });
+            
+            canvas.add(graphGroup);
+            canvas.setActiveObject(graphGroup);
+        } catch(err) {
+            console.error(err);
+            showToast("Lỗi khi tạo nhóm đồ thị.");
+        }
+      }
+      // Graph created
+    }
+
+    
+    let canvasGridLines = [];
+    window.toggleGrid = function() {
+        const gridBtn = document.getElementById('grid-toggle-btn');
+        if (canvasGridLines.length > 0) {
+            // hide grid
+            canvasGridLines.forEach(line => canvas.remove(line));
+            canvasGridLines = [];
+            gridBtn.classList.remove('bg-blue-600', 'text-white');
+            gridBtn.classList.add('bg-blue-500/20', 'text-blue-100');
+        } else {
+            // show grid
+            const gridSize = 40; // 40px grid
+            for (let i = 0; i <= canvas.width / gridSize; i++) {
+                const line = new fabric.Line([i * gridSize, 0, i * gridSize, canvas.height], {
+                    stroke: '#e2e8f0', strokeWidth: 1, selectable: false, evented: false
+                });
+                canvasGridLines.push(line);
+                canvas.add(line);
+                line.sendToBack();
+            }
+            for (let i = 0; i <= canvas.height / gridSize; i++) {
+                const line = new fabric.Line([0, i * gridSize, canvas.width, i * gridSize], {
+                    stroke: '#e2e8f0', strokeWidth: 1, selectable: false, evented: false
+                });
+                canvasGridLines.push(line);
+                canvas.add(line);
+                line.sendToBack();
+            }
+            gridBtn.classList.add('bg-blue-600', 'text-white');
+            gridBtn.classList.remove('bg-blue-500/20', 'text-blue-100');
+        }
+        canvas.renderAll();
+    };
+
+    function groupObjects() {
+      const active = canvas.getActiveObject();
+      if (!active || active.type !== 'activeSelection') {
+        showToast('Vui lòng quét chọn nhiều đối tượng để nhóm.');
+        return;
+      }
+      active.toGroup();
+      canvas.requestRenderAll();
+      showToast('Đã nhóm các đối tượng.');
+    }
+
+    function ungroupObjects() {
+      const active = canvas.getActiveObject();
+      if (!active || active.type !== 'group') {
+        showToast('Vui lòng chọn một nhóm để tách.');
+        return;
+      }
+      active.toActiveSelection();
+      canvas.requestRenderAll();
+      showToast('Đã tách nhóm.');
+    }
+
+    function copyToClipboard() {
+      canvas.discardActiveObject();
+      canvas.renderAll();
+      
+      const dataURL = canvas.toDataURL({
+        format: 'png',
+        multiplier: 2,
+        left: 0,
+        top: 0,
+        width: canvas.width,
+        height: canvas.height
+      });
+      
+      fetch(dataURL)
+        .then(res => res.blob())
+        .then(blob => {
+          if (navigator.clipboard && window.ClipboardItem) {
+            navigator.clipboard.write([
+              new ClipboardItem({ 'image/png': blob })
+            ]).then(() => {
+              showToast("Đã copy thành công, bạn có thể dán (Ctrl+V) vào Word!");
+            }).catch(err => {
+              console.error(err);
+              fallbackDownload(dataURL);
+            });
+          } else {
+             fallbackDownload(dataURL);
+          }
+        }).catch(err => {
+          showToast("Lỗi tạo ảnh.");
+          console.error(err);
+        });
+    }
+
+    function fallbackDownload(dataURL) {
+      showToast("Không thể copy trực tiếp, đang tải ảnh xuống...");
+      const link = document.createElement('a');
+      link.download = 'physics_drawing.png';
+      link.href = dataURL;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    function showToast(msg) {
+        const t = document.getElementById('toastMsg');
+        t.innerText = msg;
+        t.parentElement.classList.remove('translate-y-[150%]');
+        setTimeout(() => {
+            t.parentElement.classList.add('translate-y-[150%]');
+        }, 3000);
+    }
+
+  
